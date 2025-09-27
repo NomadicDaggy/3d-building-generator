@@ -1,6 +1,6 @@
 """
-Facade Rectification Pipeline - Fullscreen Interface
-Works directly with HEIC/DNG/JPEG files with fullscreen display for maximum detail
+Facade Rectification Pipeline - Maximized Window Style
+Image size independent of window, maximized instead of fullscreen
 """
 
 import cv2
@@ -9,46 +9,42 @@ import os
 from pathlib import Path
 
 class FacadeRectifier:
-    def __init__(self, preserve_aspect_ratio=True, max_output_width=None, fullscreen=True):
+    def __init__(self, preserve_aspect_ratio=True, max_output_width=None, maximized=True):
         """
         Initialize rectifier
         
         Args:
             preserve_aspect_ratio: If True, maintains the aspect ratio of selected area
             max_output_width: Optional max width to prevent huge outputs (None = no limit)
-            fullscreen: If True, uses fullscreen display for maximum detail
+            maximized: If True, uses maximized window for maximum detail
         """
         self.preserve_aspect_ratio = preserve_aspect_ratio
         self.max_output_width = max_output_width
-        self.fullscreen = fullscreen
+        self.maximized = maximized
         self.corners = []
         self.current_image = None
         self.original_image = None
         self.corner_selection_started = False
-        self.screen_width = None
-        self.screen_height = None
+        self.display_image = None
+        self.scale_factor = 1.0
         
-    def get_screen_resolution(self):
-        """Get screen resolution for fullscreen display"""
+    def get_window_size(self):
+        """Get reasonable window dimensions"""
         try:
             import tkinter as tk
             root = tk.Tk()
-            self.screen_width = root.winfo_screenwidth()
-            self.screen_height = root.winfo_screenheight()
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
             root.destroy()
             
-            # Leave some padding for taskbars/menus (100px each side)
-            self.screen_width -= 200
-            self.screen_height -= 200
-            
-            print(f"Screen resolution detected: {self.screen_width}x{self.screen_height} (with padding)")
-            
-        except Exception as e:
-            print(f"Could not detect screen resolution: {e}")
-            # Fallback to common large resolution
-            self.screen_width = 1720
-            self.screen_height = 880
-            print(f"Using fallback resolution: {self.screen_width}x{self.screen_height}")
+            if self.maximized:
+                # Use most of screen but leave space for title bar and taskbar
+                return screen_width - 100, screen_height - 150
+            else:
+                # Standard large window
+                return 1200, 800
+        except:
+            return 1200, 800  # Fallback
         
     def mouse_callback(self, event, x, y, flags, param):
         """Mouse callback for selecting facade corners"""
@@ -112,6 +108,42 @@ class FacadeRectifier:
         except Exception as e:
             print(f"Error loading {file_path.name}: {e}")
             return None
+    
+    def create_display_image(self, image):
+        """Create a properly sized display image"""
+        height, width = image.shape[:2]
+        
+        # Get target window size
+        window_w, window_h = self.get_window_size()
+        
+        # Calculate scale to fit image within window
+        scale_w = window_w / width
+        scale_h = window_h / height
+        scale = min(scale_w, scale_h, 1.0)  # Don't upscale
+        
+        # Calculate new dimensions
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        
+        # Resize image
+        scaled_image = cv2.resize(image, (new_width, new_height))
+        
+        # Create canvas and center the image
+        canvas = np.zeros((window_h, window_w, 3), dtype=np.uint8)
+        
+        # Calculate position to center image
+        start_y = (window_h - new_height) // 2
+        start_x = (window_w - new_width) // 2
+        
+        # Place image on canvas
+        canvas[start_y:start_y + new_height, start_x:start_x + new_width] = scaled_image
+        
+        # Update corner coordinates offset
+        self.image_offset_x = start_x
+        self.image_offset_y = start_y
+        self.scale_factor = scale
+        
+        return canvas
                     
     def load_image(self, image_path):
         """Load and prepare image for rectification"""
@@ -123,57 +155,33 @@ class FacadeRectifier:
         self.corners = []
         self.corner_selection_started = False
         
-        # Get screen resolution if not already done
-        if self.screen_width is None or self.screen_height is None:
-            self.get_screen_resolution()
-            
-        # Scale image to FIT WITHIN screen bounds while preserving aspect ratio
-        height, width = self.original_image.shape[:2]
-        
-        if self.fullscreen:
-            # Calculate scale to fit ENTIRE image within screen bounds
-            scale_w = self.screen_width / width
-            scale_h = self.screen_height / height
-            # Use the smaller scale to ensure entire image fits
-            scale = min(scale_w, scale_h)
-            
-            # Don't upscale small images
-            if scale > 1.0:
-                scale = 1.0
-                
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            
-            self.display_image = cv2.resize(self.original_image, (new_width, new_height))
-            self.scale_factor = scale
-        else:
-            # Legacy smaller window mode
-            if width > 1200 or height > 800:
-                scale = min(1200/width, 800/height)
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-                self.display_image = cv2.resize(self.original_image, (new_width, new_height))
-                self.scale_factor = scale
-            else:
-                self.display_image = self.original_image.copy()
-                self.scale_factor = 1.0
-            
+        # Create properly sized display image
+        self.display_image = self.create_display_image(self.original_image)
         self.current_image = self.display_image.copy()
+        
+        height, width = self.original_image.shape[:2]
         print(f"Original image size: {width}x{height}")
         print(f"Display size: {self.display_image.shape[1]}x{self.display_image.shape[0]}")
         print(f"Scale factor: {self.scale_factor:.3f}")
+        
         return True
         
     def setup_window(self):
         """Setup the display window"""
         window_name = 'Facade Rectifier'
         
-        if self.fullscreen:
-            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-            cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            print("Fullscreen mode enabled (Press ESC to exit fullscreen)")
+        # Create normal resizable window
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        
+        if self.maximized:
+            # Get window size and set it
+            window_w, window_h = self.get_window_size()
+            cv2.resizeWindow(window_name, window_w, window_h)
+            print(f"Maximized window mode: {window_w}x{window_h}")
         else:
-            cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+            # Standard window size
+            cv2.resizeWindow(window_name, 1200, 800)
+            print("Standard window mode: 1200x800")
             
         return window_name
         
@@ -187,9 +195,10 @@ class FacadeRectifier:
         # Create a copy to draw on
         img_with_text = image.copy()
         
-        # Instructions text - larger font for fullscreen
-        font_scale = 0.8 if self.fullscreen else 0.5
-        thickness = 2 if self.fullscreen else 1
+        # Instructions text - scale based on image size
+        height, width = image.shape[:2]
+        font_scale = max(0.5, min(1.0, width / 2000))
+        thickness = max(1, int(font_scale * 2))
         
         instructions = [
             "Controls:",
@@ -199,13 +208,13 @@ class FacadeRectifier:
             "  C: Clear corners",
             "  R: Rectify (4 corners)",
             "  Q: Quit",
-            "  ESC: Toggle fullscreen"
+            "  M: Toggle window size"
         ]
         
         # Calculate text size for background
         text_height = int(25 * font_scale)
         bg_height = len(instructions) * text_height + 40
-        bg_width = 350 if self.fullscreen else 280
+        bg_width = int(300 * font_scale)
         
         # Draw semi-transparent background
         overlay = img_with_text.copy()
@@ -213,7 +222,7 @@ class FacadeRectifier:
         cv2.addWeighted(overlay, 0.8, img_with_text, 0.2, 0, img_with_text)
         
         # Draw text
-        y_offset = 40
+        y_offset = int(35 * font_scale)
         for line in instructions:
             cv2.putText(img_with_text, line, (25, y_offset), 
                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
@@ -222,17 +231,29 @@ class FacadeRectifier:
         # Show navigation status
         status_color = (0, 0, 255) if self.corner_selection_started else (0, 255, 0)
         status_text = "Navigation locked" if self.corner_selection_started else "Navigation enabled"
-        cv2.putText(img_with_text, status_text, (25, y_offset + 15), 
+        cv2.putText(img_with_text, status_text, (25, y_offset + 10), 
                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, status_color, thickness)
             
         return img_with_text
+        
+    def adjust_corner_coordinates(self, x, y):
+        """Adjust corner coordinates for image offset and scaling"""
+        # Adjust for image position on canvas
+        adjusted_x = x - self.image_offset_x
+        adjusted_y = y - self.image_offset_y
+        
+        # Convert to original image coordinates
+        orig_x = adjusted_x / self.scale_factor
+        orig_y = adjusted_y / self.scale_factor
+        
+        return int(orig_x), int(orig_y)
         
     def select_corners_interactive(self, image_list, current_index=0):
         """Interactive corner selection with navigation"""
         total_images = len(image_list)
         current_idx = current_index
         
-        print("=== Facade Rectifier - Fullscreen Interface ===")
+        print("=== Facade Rectifier - Maximized Window ===")
         print("Navigate through images:")
         print("  A - Previous image")
         print("  D - Next image")
@@ -242,7 +263,7 @@ class FacadeRectifier:
         print("  C - Clear corners")
         print("  R - Rectify (when 4 corners selected)")
         print("  Q - Quit")
-        print("  ESC - Toggle fullscreen")
+        print("  M - Toggle window size")
         
         window_name = self.setup_window()
         cv2.setMouseCallback(window_name, self.mouse_callback)
@@ -259,20 +280,25 @@ class FacadeRectifier:
             display_img = self.draw_instructions(self.current_image)
             
             cv2.imshow(window_name, display_img)
-            key = cv2.waitKey(1) & 0xFF
+            
+            # Check if window was closed (returns -1 when window is closed)
+            key = cv2.waitKey(30) & 0xFF
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                cv2.destroyAllWindows()
+                return None, None
             
             if key == ord('q'):
                 cv2.destroyAllWindows()
                 return None, None
                 
-            elif key == 27:  # ESC key - toggle fullscreen
-                self.fullscreen = not self.fullscreen
+            elif key == ord('m'):  # Toggle window size
+                self.maximized = not self.maximized
                 cv2.destroyWindow(window_name)
+                # Reload image with new display mode
+                self.load_image(image_list[current_idx])
                 window_name = self.setup_window()
                 cv2.setMouseCallback(window_name, self.mouse_callback)
-                # Reload current image with new display settings
-                self.load_image(image_list[current_idx])
-                print(f"Fullscreen {'enabled' if self.fullscreen else 'disabled'}")
+                print(f"Window size: {'Maximized' if self.maximized else 'Standard'}")
                 
             elif key == ord('a'):  # Previous image
                 if not self.corner_selection_started and current_idx > 0:
@@ -341,9 +367,8 @@ class FacadeRectifier:
         # Convert corners to original image coordinates
         corners_original = []
         for corner in self.corners:
-            x_orig = int(corner[0] / self.scale_factor)
-            y_orig = int(corner[1] / self.scale_factor)
-            corners_original.append([x_orig, y_orig])
+            orig_x, orig_y = self.adjust_corner_coordinates(corner[0], corner[1])
+            corners_original.append([orig_x, orig_y])
             
         # Calculate output dimensions
         output_width, output_height = self.calculate_output_dimensions(corners_original)
@@ -402,46 +427,16 @@ class FacadeRectifier:
                 f.write(f"Output dimensions: {dimensions[0]}x{dimensions[1]}\n")
                 f.write(f"Original corners (in source coordinates):\n")
                 for i, corner in enumerate(self.corners):
-                    orig_x = int(corner[0] / self.scale_factor)
-                    orig_y = int(corner[1] / self.scale_factor)
+                    orig_x, orig_y = self.adjust_corner_coordinates(corner[0], corner[1])
                     f.write(f"  Corner {i+1}: ({orig_x}, {orig_y})\n")
                 f.write(f"Scale factor used for display: {self.scale_factor:.3f}\n")
+                f.write(f"Image offset: ({self.image_offset_x}, {self.image_offset_y})\n")
             
-            # Show result in fullscreen
-            cv2.namedWindow('Original vs Rectified', cv2.WINDOW_NORMAL)
-            if self.fullscreen:
-                cv2.setWindowProperty('Original vs Rectified', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            
-            # Create side-by-side comparison
-            display_original = self.display_image
-            
-            # Scale rectified for display
-            if rectified_image.shape[1] > self.screen_width//2 or rectified_image.shape[0] > self.screen_height:
-                scale = min((self.screen_width//2)/rectified_image.shape[1], self.screen_height/rectified_image.shape[0])
-                new_width = int(rectified_image.shape[1] * scale)
-                new_height = int(rectified_image.shape[0] * scale)
-                display_rectified = cv2.resize(rectified_image, (new_width, new_height))
-            else:
-                display_rectified = rectified_image
-            
-            # Create side-by-side image
-            max_height = max(display_original.shape[0], display_rectified.shape[0])
-            
-            # Resize both to same height for comparison
-            if display_original.shape[0] != max_height:
-                scale = max_height / display_original.shape[0]
-                new_width = int(display_original.shape[1] * scale)
-                display_original = cv2.resize(display_original, (new_width, max_height))
-                
-            if display_rectified.shape[0] != max_height:
-                scale = max_height / display_rectified.shape[0]
-                new_width = int(display_rectified.shape[1] * scale)
-                display_rectified = cv2.resize(display_rectified, (new_width, max_height))
-            
-            # Combine images
-            comparison = np.hstack([display_original, display_rectified])
-            
-            cv2.imshow('Original vs Rectified', comparison)
+            # Show result
+            result_display = self.create_display_image(rectified_image)
+            cv2.namedWindow('Rectified Result', cv2.WINDOW_NORMAL)
+            cv2.resizeWindow('Rectified Result', result_display.shape[1], result_display.shape[0])
+            cv2.imshow('Rectified Result', result_display)
             print("Press any key to continue...")
             cv2.waitKey(0)
             cv2.destroyAllWindows()
@@ -482,17 +477,17 @@ if __name__ == "__main__":
     # Configuration
     PRESERVE_ASPECT_RATIO = True
     MAX_OUTPUT_WIDTH = 4096  # Set to None for no limit, or e.g. 4096 to cap at 4K width
-    FULLSCREEN = True        # Start in fullscreen mode
+    MAXIMIZED = True         # Start with maximized window
     
     # Create rectifier
     rectifier = FacadeRectifier(
         preserve_aspect_ratio=PRESERVE_ASPECT_RATIO,
         max_output_width=MAX_OUTPUT_WIDTH,
-        fullscreen=FULLSCREEN
+        maximized=MAXIMIZED
     )
     
-    # Find source images directly - CORRECT DIRECTORY PATH
-    raw_dir = "./pics-raw"  # Same directory level as script
+    # Find source images directly
+    raw_dir = "./pics-raw"
     source_files = find_source_images(raw_dir)
     
     if not source_files:
@@ -501,14 +496,16 @@ if __name__ == "__main__":
     
     print(f"\nConfiguration:")
     print(f"  Working directly with source files")
-    print(f"  Fullscreen mode: {FULLSCREEN}")
+    print(f"  Maximized window mode (stays on current monitor)")
+    print(f"  Window mode: {'Maximized' if MAXIMIZED else 'Standard'}")
     print(f"  Preserve aspect ratio: {PRESERVE_ASPECT_RATIO}")
     print(f"  Max output width: {MAX_OUTPUT_WIDTH if MAX_OUTPUT_WIDTH else 'No limit'}")
     print(f"  Output format: PNG (lossless)")
     print(f"  Total images found: {len(source_files)}")
     
-    print(f"\nStarting fullscreen interface...")
-    print(f"Use A/D to navigate, click corners to select, R to rectify, ESC to toggle fullscreen")
+    print(f"\nStarting interface...")
+    print(f"Use A/D to navigate, click corners to select, R to rectify, M to toggle window size")
+    print(f"You can close the window with the X button or press Q")
     
     # Main navigation loop
     current_index = 0
