@@ -160,10 +160,8 @@ Photos → OpenCV/Python → Substance Designer → Blender/Houdini → Unity/Go
 - Asset streaming for memory management
 
 ### Visual Quality
-- Low-resolution textures (256x256 base) for retro aesthetic
 - Realistic material properties for authentic lighting
 - Procedural wear/damage for visual variety
-- Compression artifacts enhance retro feel
 
 ### Scalability
 - Modular texture system allows easy expansion
