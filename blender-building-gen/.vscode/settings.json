@@ -1,0 +1,11 @@
+{
+  "python.defaultInterpreterPath": "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe",
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": true,
+  "files.associations": {
+    "*.py": "python"
+  },
+  "python.analysis.extraPaths": [
+    "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/lib/site-packages"
+  ]
+}

@@ -51,8 +51,6 @@ blender-building-gen/
 │       └── material_system.py       # Material assignment
 ├── rules/
 │   ├── residential.json            # Building type rules
-│   ├── commercial.json
-│   └── industrial.json
 ├── materials/
 │   └── building_materials.blend    # Material library
 └── test_buildings/
