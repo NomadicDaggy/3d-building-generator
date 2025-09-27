@@ -27,6 +27,7 @@ class FacadeRectifier:
         self.corner_selection_started = False
         self.display_image = None
         self.scale_factor = 1.0
+        self.auto_rectify = False
         
     def get_window_size(self):
         """Get reasonable window dimensions"""
@@ -62,7 +63,9 @@ class FacadeRectifier:
                 print(f"Corner {len(self.corners)}: ({x}, {y})")
                 
                 if len(self.corners) == 4:
-                    print("All 4 corners selected! Press 'r' to rectify or 'c' to clear")
+                    print("All 4 corners selected! Auto-rectifying...")
+                    # Trigger automatic rectification
+                    self.auto_rectify = True
     
     def load_image_file(self, image_path):
         """Load image from various formats (HEIC, DNG, JPEG, PNG) directly"""
@@ -154,6 +157,7 @@ class FacadeRectifier:
         # Reset corner selection state
         self.corners = []
         self.corner_selection_started = False
+        self.auto_rectify = False
         
         # Create properly sized display image
         self.display_image = self.create_display_image(self.original_image)
@@ -206,9 +210,9 @@ class FacadeRectifier:
             "  A: Previous image",
             "  D: Next image", 
             "  C: Clear corners",
-            "  R: Rectify (4 corners)",
             "  Q: Quit",
-            "  M: Toggle window size"
+            "  M: Toggle window size",
+            "Auto-rectifies after 4th corner"
         ]
         
         # Calculate text size for background
@@ -258,12 +262,12 @@ class FacadeRectifier:
         print("  A - Previous image")
         print("  D - Next image")
         print("Select corners (click in order):")
-        print("1. Top-left, 2. Top-right, 3. Bottom-right, 4. Bottom-left")
+        print("1. Bottom-left, 2. Top-left, 3. Top-right, 4. Bottom-right")
         print("Other controls:")
         print("  C - Clear corners")
-        print("  R - Rectify (when 4 corners selected)")
         print("  Q - Quit")
         print("  M - Toggle window size")
+        print("Note: Rectification happens automatically after 4th corner")
         
         window_name = self.setup_window()
         cv2.setMouseCallback(window_name, self.mouse_callback)
@@ -275,6 +279,11 @@ class FacadeRectifier:
         while True:
             # Update window title
             self.update_window_title(current_idx, total_images, image_list[current_idx].name, window_name)
+            
+            # Check for auto-rectification
+            if self.auto_rectify:
+                cv2.destroyAllWindows()
+                return image_list[current_idx], current_idx
             
             # Draw instructions on image
             display_img = self.draw_instructions(self.current_image)
@@ -328,12 +337,9 @@ class FacadeRectifier:
                 # Clear corners and reset image
                 self.corners = []
                 self.corner_selection_started = False
+                self.auto_rectify = False
                 self.current_image = self.display_image.copy()
                 print("Corners cleared - navigation enabled")
-                    
-            elif key == ord('r') and len(self.corners) == 4:
-                cv2.destroyAllWindows()
-                return image_list[current_idx], current_idx
                 
     def calculate_output_dimensions(self, corners_original):
         """Calculate optimal output dimensions based on selected area"""
@@ -360,7 +366,7 @@ class FacadeRectifier:
         return width, height
         
     def rectify_facade(self):
-        """Perform the rectification using homographic transformation"""
+        """Perform the rectification using homographic transformation on the whole image"""
         if len(self.corners) != 4:
             raise ValueError("Need exactly 4 corners for rectification")
             
@@ -370,31 +376,44 @@ class FacadeRectifier:
             orig_x, orig_y = self.adjust_corner_coordinates(corner[0], corner[1])
             corners_original.append([orig_x, orig_y])
             
-        # Calculate output dimensions
-        output_width, output_height = self.calculate_output_dimensions(corners_original)
+        # Use original image dimensions for output (no cropping)
+        original_height, original_width = self.original_image.shape[:2]
+        
+        # Calculate the dimensions of the selected quadrilateral
+        corners = np.array(corners_original)
+        quad_width = np.linalg.norm(corners[2] - corners[1])  # Top edge
+        quad_height = np.linalg.norm(corners[1] - corners[0])  # Left edge
+        
+        # Calculate center of the selected quadrilateral
+        quad_center_x = np.mean(corners[:, 0])
+        quad_center_y = np.mean(corners[:, 1])
+        
+        # Create destination rectangle centered at the same position
+        half_width = quad_width / 2
+        half_height = quad_height / 2
         
         # Source points (the selected corners)
         src_points = np.float32(corners_original)
         
-        # Destination points (perfect rectangle at calculated dimensions)
+        # Destination points (perfect rectangle at same center position)
         dst_points = np.float32([
-            [0, 0],                           # Top-left
-            [output_width, 0],                # Top-right
-            [output_width, output_height],    # Bottom-right
-            [0, output_height]                # Bottom-left
+            [quad_center_x - half_width, quad_center_y + half_height],  # Bottom-left
+            [quad_center_x - half_width, quad_center_y - half_height],  # Top-left
+            [quad_center_x + half_width, quad_center_y - half_height],  # Top-right
+            [quad_center_x + half_width, quad_center_y + half_height]   # Bottom-right
         ])
         
         # Calculate homography matrix
         homography_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
         
-        # Apply transformation
+        # Apply transformation to the entire image
         rectified = cv2.warpPerspective(
             self.original_image, 
             homography_matrix, 
-            (output_width, output_height)
+            (original_width, original_height)
         )
         
-        return rectified, homography_matrix, (output_width, output_height)
+        return rectified, homography_matrix, (original_width, original_height)
         
     def process_image(self, input_path, output_path=None):
         """Complete process: load, select corners, rectify, save"""
@@ -424,8 +443,9 @@ class FacadeRectifier:
             metadata_path = str(output_path).replace('.png', '_metadata.txt')
             with open(metadata_path, 'w') as f:
                 f.write(f"Source: {input_path}\n")
-                f.write(f"Output dimensions: {dimensions[0]}x{dimensions[1]}\n")
-                f.write(f"Original corners (in source coordinates):\n")
+                f.write(f"Output dimensions: {dimensions[0]}x{dimensions[1]} (full image)\n")
+                f.write(f"Rectification type: Full image perspective correction\n")
+                f.write(f"Reference corners (in source coordinates):\n")
                 for i, corner in enumerate(self.corners):
                     orig_x, orig_y = self.adjust_corner_coordinates(corner[0], corner[1])
                     f.write(f"  Corner {i+1}: ({orig_x}, {orig_y})\n")
@@ -504,7 +524,7 @@ if __name__ == "__main__":
     print(f"  Total images found: {len(source_files)}")
     
     print(f"\nStarting interface...")
-    print(f"Use A/D to navigate, click corners to select, R to rectify, M to toggle window size")
+    print(f"Use A/D to navigate, click corners to select (auto-rectifies after 4th), M to toggle window size")
     print(f"You can close the window with the X button or press Q")
     
     # Main navigation loop
