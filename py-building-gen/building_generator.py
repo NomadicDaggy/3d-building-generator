@@ -28,19 +28,32 @@ class BuildingGenerator:
         self.balcony_height = 0.1
         
     def create_box(self, size, position=(0, 0, 0)):
-        """Create a simple box mesh"""
+        """Create a simple box mesh with Z as up axis"""
+        # size = (width_X, depth_Y, height_Z)
+        # Creates a box extending:
+        #   - size[0] in X direction (width, left-right)
+        #   - size[1] in Y direction (depth, front-back)
+        #   - size[2] in Z direction (height, up-down)
         vertices = np.array([
-            [0, 0, 0], [size[0], 0, 0], [size[0], size[1], 0], [0, size[1], 0],  # Front
-            [0, 0, size[2]], [size[0], 0, size[2]], [size[0], size[1], size[2]], [0, size[1], size[2]]  # Back
+            # Bottom face (Z=0)
+            [0, 0, 0], [size[0], 0, 0], [size[0], size[1], 0], [0, size[1], 0],
+            # Top face (Z=size[2])
+            [0, 0, size[2]], [size[0], 0, size[2]], [size[0], size[1], size[2]], [0, size[1], size[2]]
         ]) + position
         
         faces = np.array([
-            [0, 1, 2], [0, 2, 3],  # Front
-            [4, 6, 5], [4, 7, 6],  # Back
-            [0, 4, 5], [0, 5, 1],  # Bottom
-            [2, 6, 7], [2, 7, 3],  # Top
-            [0, 3, 7], [0, 7, 4],  # Left
-            [1, 5, 6], [1, 6, 2]   # Right
+            # Bottom face (normal pointing down)
+            [0, 1, 2], [0, 2, 3],
+            # Top face (normal pointing up)
+            [4, 6, 5], [4, 7, 6],
+            # Front face Y=0 (normal pointing toward -Y)
+            [0, 4, 5], [0, 5, 1],
+            # Back face Y=depth (normal pointing toward +Y)
+            [2, 6, 7], [2, 7, 3],
+            # Left face X=0 (normal pointing toward -X)
+            [0, 3, 7], [0, 7, 4],
+            # Right face X=width (normal pointing toward +X)
+            [1, 5, 6], [1, 6, 2]
         ])
         
         return trimesh.Trimesh(vertices=vertices, faces=faces)
@@ -49,9 +62,9 @@ class BuildingGenerator:
         """Create a recessed window"""
         meshes = []
         
-        # Window recess (negative space is simulated by inset geometry)
+        # Window recess - size = (width_X, depth_Y, height_Z)
         recess = self.create_box(
-            size=(self.window_width, self.window_height, self.window_depth),
+            size=(self.window_width, self.window_depth, self.window_height),
             position=position
         )
         meshes.append(recess)
@@ -61,22 +74,22 @@ class BuildingGenerator:
             frame_thickness = 0.05
             # Left frame
             left_frame = self.create_box(
-                size=(frame_thickness, self.window_height, self.window_depth),
+                size=(frame_thickness, self.window_depth, self.window_height),
                 position=position
             )
             # Right frame
             right_frame = self.create_box(
-                size=(frame_thickness, self.window_height, self.window_depth),
+                size=(frame_thickness, self.window_depth, self.window_height),
                 position=(position[0] + self.window_width - frame_thickness, position[1], position[2])
             )
             # Top frame
             top_frame = self.create_box(
-                size=(self.window_width, frame_thickness, self.window_depth),
-                position=(position[0], position[1] + self.window_height - frame_thickness, position[2])
+                size=(self.window_width, self.window_depth, frame_thickness),
+                position=(position[0], position[1], position[2] + self.window_height - frame_thickness)
             )
             # Bottom frame
             bottom_frame = self.create_box(
-                size=(self.window_width, frame_thickness, self.window_depth),
+                size=(self.window_width, self.window_depth, frame_thickness),
                 position=position
             )
             
@@ -88,7 +101,7 @@ class BuildingGenerator:
         """Create a simple balcony"""
         meshes = []
         
-        # Balcony floor
+        # Balcony floor - size = (width_X, depth_Y, height_Z)
         floor = self.create_box(
             size=(width, self.balcony_depth, self.balcony_height),
             position=position
@@ -99,21 +112,21 @@ class BuildingGenerator:
         railing_height = 1.0
         railing_thickness = 0.05
         
-        # Front railing
-        front_rail = self.create_box(
+        # Outer railing (farthest from building, at the front of the balcony Y=position[1])
+        outer_rail = self.create_box(
             size=(width, railing_thickness, railing_height),
-            position=(position[0], position[1] + self.balcony_depth - railing_thickness, position[2])
+            position=(position[0], position[1], position[2] + self.balcony_height)
         )
-        meshes.append(front_rail)
+        meshes.append(outer_rail)
         
         # Side railings
         left_rail = self.create_box(
             size=(railing_thickness, self.balcony_depth, railing_height),
-            position=position
+            position=(position[0], position[1], position[2] + self.balcony_height)
         )
         right_rail = self.create_box(
             size=(railing_thickness, self.balcony_depth, railing_height),
-            position=(position[0] + width - railing_thickness, position[1], position[2])
+            position=(position[0] + width - railing_thickness, position[1], position[2] + self.balcony_height)
         )
         meshes.extend([left_rail, right_rail])
         
@@ -127,15 +140,15 @@ class BuildingGenerator:
         meshes = []
         x, y, z = position
         
-        # Main wall section
+        # Main wall section - size = (width_X, depth_Y, height_Z)
         wall = self.create_box(
             size=(self.apartment_width, self.building_depth, self.floor_height),
             position=position
         )
         meshes.append(wall)
         
-        # Window positioning (centered on facade)
-        window_y_offset = 0.8  # From floor
+        # Window positioning (centered on facade, front face is at Y=y)
+        window_z_offset = 0.8  # Height from floor
         window_x_center = self.apartment_width / 2
         
         if variant == 2:  # Double window
@@ -143,15 +156,16 @@ class BuildingGenerator:
             window_x1 = window_x_center - self.window_width - window_spacing / 2
             window_x2 = window_x_center + window_spacing / 2
             
-            window1 = self.create_window((x + window_x1, y, z + window_y_offset))
-            window2 = self.create_window((x + window_x2, y, z + window_y_offset))
+            window1 = self.create_window((x + window_x1, y, z + window_z_offset))
+            window2 = self.create_window((x + window_x2, y, z + window_z_offset))
             meshes.extend([window1, window2])
         else:  # Single window
             window_x = window_x_center - self.window_width / 2
-            window = self.create_window((x + window_x, y, z + window_y_offset))
+            window = self.create_window((x + window_x, y, z + window_z_offset))
             meshes.append(window)
         
         # Add balcony if variant == 1
+        # Balcony extends in NEGATIVE Y direction from building front
         if variant == 1:
             balcony_width = self.apartment_width * 0.8
             balcony_x = x + (self.apartment_width - balcony_width) / 2
@@ -172,7 +186,7 @@ class BuildingGenerator:
         # Base is slightly taller and might have different facade
         base_height = self.floor_height * 1.2
         
-        # Main base structure
+        # Main base structure - size = (width_X, depth_Y, height_Z)
         base = self.create_box(
             size=(width, depth, base_height),
             position=(0, 0, 0)
@@ -210,7 +224,7 @@ class BuildingGenerator:
         
         roof_height = 0.3
         
-        # Main roof slab
+        # Main roof slab - size = (width_X, depth_Y, height_Z)
         roof = self.create_box(
             size=(width, depth, roof_height),
             position=(0, 0, height)
@@ -293,13 +307,12 @@ class BuildingGenerator:
         # Simple box projection UV mapping
         vertices = mesh.vertices
         
-        # Project onto XZ plane for horizontal surfaces
-        # Project onto XY and ZY planes for vertical surfaces
+        # Project onto XY plane
         uvs = np.zeros((len(vertices), 2))
         
-        # Simple planar projection (can be improved)
+        # Simple planar projection
         uvs[:, 0] = vertices[:, 0] / 10.0  # Normalize X
-        uvs[:, 1] = vertices[:, 2] / 10.0  # Normalize Z
+        uvs[:, 1] = vertices[:, 1] / 10.0  # Normalize Y
         
         # Store UVs as visual (will be exported to OBJ)
         mesh.visual = trimesh.visual.TextureVisuals(uv=uvs)
