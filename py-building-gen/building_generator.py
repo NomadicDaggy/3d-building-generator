@@ -29,9 +29,9 @@ class BuildingGenerator:
         
         # Window dimensions
         self.window_cavity_depth = 0.25  # Deep recess in wall
-        self.window_reveal_depth = 0.05  # How far window sits from wall face
-        self.window_frame_depth = 0.08   # Thickness of window frame
-        self.window_glass_depth = 0.02   # Thickness of glass pane
+        self.window_reveal_depth = 0.15  # Distance from wall face to window frame
+        self.window_frame_thickness = 0.05  # Thickness of window frame pieces
+        self.window_glass_thickness = 0.02   # Thickness of glass pane
         
         # Define materials for different building components
         self.materials = {
@@ -120,58 +120,98 @@ class BuildingGenerator:
         return mesh
     
     def create_window_cavity(self, position):
-        """Create the deep recess in the wall for the window"""
-        cavity = self.create_box(
-            size=(self.window_width, self.window_cavity_depth, self.window_height),
-            position=position,
+        """Create the deep recess in the wall for the window (4 side walls only)"""
+        meshes = []
+        x, y, z = position
+        wall_thickness = 0.05  # Thickness of cavity side walls
+        
+        # Bottom wall of cavity
+        bottom = self.create_box(
+            size=(self.window_width, self.window_cavity_depth, wall_thickness),
+            position=(x, y, z),
             material=self.materials['window_cavity']
         )
-        return cavity
+        meshes.append(bottom)
+        
+        # Top wall of cavity
+        top = self.create_box(
+            size=(self.window_width, self.window_cavity_depth, wall_thickness),
+            position=(x, y, z + self.window_height - wall_thickness),
+            material=self.materials['window_cavity']
+        )
+        meshes.append(top)
+        
+        # Left wall of cavity
+        left = self.create_box(
+            size=(wall_thickness, self.window_cavity_depth, self.window_height),
+            position=(x, y, z),
+            material=self.materials['window_cavity']
+        )
+        meshes.append(left)
+        
+        # Right wall of cavity
+        right = self.create_box(
+            size=(wall_thickness, self.window_cavity_depth, self.window_height),
+            position=(x + self.window_width - wall_thickness, y, z),
+            material=self.materials['window_cavity']
+        )
+        meshes.append(right)
+        
+        return meshes
     
     def create_window(self, position, with_frame=True):
-        """Create window assembly with frame and glass at proper depths"""
+        """Create window assembly with frame and glass at proper depths within cavity"""
         meshes = []
         
-        # Window is positioned at reveal depth from wall face
-        window_y = position[1] + self.window_reveal_depth
+        # Frame sits at reveal depth from wall face (inside the cavity)
+        frame_y = position[1] + self.window_reveal_depth
+        
+        # Calculate frame outer dimensions (full window opening)
+        frame_outer_width = self.window_width
+        frame_outer_height = self.window_height
+        
+        # Frame depth (how thick the frame is front-to-back)
+        frame_depth = 0.08
+        
+        # Glass will sit in the middle of the frame depth
+        glass_y = frame_y + (frame_depth - self.window_glass_thickness) / 2
         
         if with_frame:
-            # Window frame with proper thickness
-            frame_thickness = 0.05
-            
-            # Left frame
+            # Create frame as 4 bars around the perimeter
+            # Left frame (vertical bar on left side)
             left_frame = self.create_box(
-                size=(frame_thickness, self.window_frame_depth, self.window_height),
-                position=(position[0], window_y, position[2]),
+                size=(self.window_frame_thickness, frame_depth, frame_outer_height),
+                position=(position[0], frame_y, position[2]),
                 material=self.materials['window_frame']
             )
-            # Right frame
+            # Right frame (vertical bar on right side)
             right_frame = self.create_box(
-                size=(frame_thickness, self.window_frame_depth, self.window_height),
-                position=(position[0] + self.window_width - frame_thickness, window_y, position[2]),
+                size=(self.window_frame_thickness, frame_depth, frame_outer_height),
+                position=(position[0] + frame_outer_width - self.window_frame_thickness, frame_y, position[2]),
                 material=self.materials['window_frame']
             )
-            # Top frame
+            # Top frame (horizontal bar at top)
             top_frame = self.create_box(
-                size=(self.window_width, self.window_frame_depth, frame_thickness),
-                position=(position[0], window_y, position[2] + self.window_height - frame_thickness),
+                size=(frame_outer_width, frame_depth, self.window_frame_thickness),
+                position=(position[0], frame_y, position[2] + frame_outer_height - self.window_frame_thickness),
                 material=self.materials['window_frame']
             )
-            # Bottom frame
+            # Bottom frame (horizontal bar at bottom)
             bottom_frame = self.create_box(
-                size=(self.window_width, self.window_frame_depth, frame_thickness),
-                position=(position[0], window_y, position[2]),
+                size=(frame_outer_width, frame_depth, self.window_frame_thickness),
+                position=(position[0], frame_y, position[2]),
                 material=self.materials['window_frame']
             )
             
             meshes.extend([left_frame, right_frame, top_frame, bottom_frame])
         
-        # Glass pane sits at the back of the frame
-        glass_y = window_y + self.window_frame_depth - self.window_glass_depth
+        # Glass pane fills the frame opening (slightly smaller to account for frame thickness)
+        glass_width = frame_outer_width - (2 * self.window_frame_thickness)
+        glass_height = frame_outer_height - (2 * self.window_frame_thickness)
         
         window_glass = self.create_box(
-            size=(self.window_width, self.window_glass_depth, self.window_height),
-            position=(position[0], glass_y, position[2]),
+            size=(glass_width, self.window_glass_thickness, glass_height),
+            position=(position[0] + self.window_frame_thickness, glass_y, position[2] + self.window_frame_thickness),
             material=self.materials['window']
         )
         meshes.append(window_glass)
@@ -236,32 +276,32 @@ class BuildingGenerator:
         # Window positioning (centered on facade, front face is at Y=y)
         window_z_offset = 0.8  # Height from floor
         window_x_center = self.apartment_width / 2
-        cavity_inset = -0.02  # Offset cavity slightly into wall to prevent z-fighting
         
         if variant == 2:  # Double window
             window_spacing = 0.3
             window_x1 = window_x_center - self.window_width - window_spacing / 2
             window_x2 = window_x_center + window_spacing / 2
             
-            # Create cavities first (inset slightly to prevent z-fighting)
-            cavity1 = self.create_window_cavity((x + window_x1, y + cavity_inset, z + window_z_offset))
-            cavity2 = self.create_window_cavity((x + window_x2, y + cavity_inset, z + window_z_offset))
-            meshes.extend([cavity1, cavity2])
+            # Create cavities first (starting at wall front face)
+            cavity1_parts = self.create_window_cavity((x + window_x1, y, z + window_z_offset))
+            cavity2_parts = self.create_window_cavity((x + window_x2, y, z + window_z_offset))
+            meshes.extend(cavity1_parts)
+            meshes.extend(cavity2_parts)
             
-            # Then add window assemblies
-            window1_parts = self.create_window((x + window_x1, y + cavity_inset, z + window_z_offset))
-            window2_parts = self.create_window((x + window_x2, y + cavity_inset, z + window_z_offset))
+            # Then add window assemblies (same base position)
+            window1_parts = self.create_window((x + window_x1, y, z + window_z_offset))
+            window2_parts = self.create_window((x + window_x2, y, z + window_z_offset))
             meshes.extend(window1_parts)
             meshes.extend(window2_parts)
         else:  # Single window
             window_x = window_x_center - self.window_width / 2
             
-            # Create cavity first (inset slightly to prevent z-fighting)
-            cavity = self.create_window_cavity((x + window_x, y + cavity_inset, z + window_z_offset))
-            meshes.append(cavity)
+            # Create cavity first (starting at wall front face)
+            cavity_parts = self.create_window_cavity((x + window_x, y, z + window_z_offset))
+            meshes.extend(cavity_parts)
             
-            # Then add window assembly
-            window_parts = self.create_window((x + window_x, y + cavity_inset, z + window_z_offset))
+            # Then add window assembly (same base position)
+            window_parts = self.create_window((x + window_x, y, z + window_z_offset))
             meshes.extend(window_parts)
         
         # Add balcony if variant == 1
@@ -309,17 +349,16 @@ class BuildingGenerator:
         
         # Some base windows (smaller, less regular)
         num_base_windows = int(width / self.apartment_width) - 1
-        cavity_inset = -0.02  # Prevent z-fighting on base windows too
         for i in range(num_base_windows):
             window_x = (i + 1) * self.apartment_width
             if abs(window_x - width / 2) > entrance_width:  # Don't place over entrance
-                # Create cavity (inset slightly)
-                cavity = self.create_window_cavity((window_x, cavity_inset, base_height * 0.4))
-                meshes.append(cavity)
+                # Create cavity (starting at wall front face)
+                cavity_parts = self.create_window_cavity((window_x, 0, base_height * 0.4))
+                meshes.extend(cavity_parts)
                 
                 # Add window
                 window_parts = self.create_window(
-                    (window_x, cavity_inset, base_height * 0.4),
+                    (window_x, 0, base_height * 0.4),
                     with_frame=False
                 )
                 meshes.extend(window_parts)
