@@ -82,7 +82,7 @@ class BuildingGenerator:
             )
         }
         
-    def create_box(self, size, position=(0, 0, 0), material=None):
+    def create_box(self, size, position=(0, 0, 0), material=None, solid=False):
         """Create a simple box mesh with Z as up axis and optional material"""
         # size = (width_X, depth_Y, height_Z)
         # Creates a box extending:
@@ -112,6 +112,12 @@ class BuildingGenerator:
         ])
         
         mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        
+        # Make solid if requested (for boolean operations)
+        if solid:
+            mesh.fix_normals()
+            if not mesh.is_watertight:
+                mesh.fill_holes()
         
         # Apply material if provided
         if material is not None:
@@ -269,18 +275,35 @@ class BuildingGenerator:
         wall = self.create_box(
             size=(self.apartment_width, self.building_depth, self.floor_height),
             position=position,
-            material=self.materials['wall']
+            material=self.materials['wall'],
+            solid=True
         )
-        meshes.append(wall)
         
         # Window positioning (centered on facade, front face is at Y=y)
         window_z_offset = 0.8  # Height from floor
         window_x_center = self.apartment_width / 2
+        boolean_depth = 0.5  # Depth of window cutout
         
         if variant == 2:  # Double window
             window_spacing = 0.3
             window_x1 = window_x_center - self.window_width - window_spacing / 2
             window_x2 = window_x_center + window_spacing / 2
+            
+            # Create both cutouts
+            cutout1 = self.create_box(
+                size=(self.window_width, boolean_depth, self.window_height),
+                position=(x + window_x1, y, z + window_z_offset),
+                solid=True
+            )
+            cutout2 = self.create_box(
+                size=(self.window_width, boolean_depth, self.window_height),
+                position=(x + window_x2, y, z + window_z_offset),
+                solid=True
+            )
+            
+            # Combine cutouts with union, then subtract from wall
+            combined_cutout = cutout1.union(cutout2)
+            wall = wall.difference(combined_cutout)
             
             # Create cavities first (starting at wall front face)
             cavity1_parts = self.create_window_cavity((x + window_x1, y, z + window_z_offset))
@@ -296,6 +319,14 @@ class BuildingGenerator:
         else:  # Single window
             window_x = window_x_center - self.window_width / 2
             
+            # Boolean cut for window
+            cutout = self.create_box(
+                size=(self.window_width, boolean_depth, self.window_height),
+                position=(x + window_x, y, z + window_z_offset),
+                solid=True
+            )
+            wall = wall.difference(cutout)
+            
             # Create cavity first (starting at wall front face)
             cavity_parts = self.create_window_cavity((x + window_x, y, z + window_z_offset))
             meshes.extend(cavity_parts)
@@ -303,6 +334,10 @@ class BuildingGenerator:
             # Then add window assembly (same base position)
             window_parts = self.create_window((x + window_x, y, z + window_z_offset))
             meshes.extend(window_parts)
+        
+        # Re-apply material after boolean operations
+        wall.visual = trimesh.visual.TextureVisuals(material=self.materials['wall'])
+        meshes.append(wall)
         
         # Add balcony if variant == 1
         # Balcony extends in NEGATIVE Y direction from building front
@@ -325,24 +360,34 @@ class BuildingGenerator:
         
         # Base is slightly taller and might have different facade
         base_height = self.floor_height * 1.2
+        boolean_depth = 0.5  # Depth of cutouts
         
         # Main base structure - size = (width_X, depth_Y, height_Z)
         base = self.create_box(
             size=(width, depth, base_height),
             position=(0, 0, 0),
-            material=self.materials['base']
+            material=self.materials['base'],
+            solid=True
         )
-        meshes.append(base)
         
-        # Entrance (simple flat colored area)
+        # Entrance cutout and overlay
         entrance_width = 2.0
         entrance_height = 2.5
-        entrance_depth = 0.01  # Very thin, just for color
+        entrance_depth = 0.01  # Very thin overlay, just for color
         entrance_x = width / 2 - entrance_width / 2
         
+        # Boolean cut for entrance
+        entrance_cutout = self.create_box(
+            size=(entrance_width, boolean_depth, entrance_height),
+            position=(entrance_x, 0, 0.2),
+            solid=True
+        )
+        base = base.difference(entrance_cutout)
+        
+        # Entrance overlay (colored rectangle at the back of the recess)
         entrance = self.create_box(
             size=(entrance_width, entrance_depth, entrance_height),
-            position=(entrance_x, 0, 0.2),
+            position=(entrance_x, boolean_depth - entrance_depth, 0.2),
             material=self.materials['entrance']
         )
         meshes.append(entrance)
@@ -352,6 +397,14 @@ class BuildingGenerator:
         for i in range(num_base_windows):
             window_x = (i + 1) * self.apartment_width
             if abs(window_x - width / 2) > entrance_width:  # Don't place over entrance
+                # Boolean cut for window
+                cutout = self.create_box(
+                    size=(self.window_width, boolean_depth, self.window_height),
+                    position=(window_x, 0, base_height * 0.4),
+                    solid=True
+                )
+                base = base.difference(cutout)
+                
                 # Create cavity (starting at wall front face)
                 cavity_parts = self.create_window_cavity((window_x, 0, base_height * 0.4))
                 meshes.extend(cavity_parts)
@@ -363,6 +416,9 @@ class BuildingGenerator:
                 )
                 meshes.extend(window_parts)
         
+        # Re-apply material after boolean operations
+        base.visual = trimesh.visual.TextureVisuals(material=self.materials['base'])
+        meshes.append(base)
         return meshes, base_height
     
     def create_roof(self, width, depth, height):
