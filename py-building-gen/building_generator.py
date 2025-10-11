@@ -394,27 +394,44 @@ class BuildingGenerator:
         
         # Some base windows (smaller, less regular)
         num_base_windows = int(width / self.apartment_width) - 1
+        window_cutouts = []
+        window_positions = []
+        
+        # Collect all window positions and create cutouts
         for i in range(num_base_windows):
             window_x = (i + 1) * self.apartment_width
             if abs(window_x - width / 2) > entrance_width:  # Don't place over entrance
-                # Boolean cut for window
+                window_positions.append(window_x)
+                # Create cutout
                 cutout = self.create_box(
                     size=(self.window_width, boolean_depth, self.window_height),
                     position=(window_x, 0, base_height * 0.4),
                     solid=True
                 )
-                base = base.difference(cutout)
-                
-                # Create cavity (starting at wall front face)
-                cavity_parts = self.create_window_cavity((window_x, 0, base_height * 0.4))
-                meshes.extend(cavity_parts)
-                
-                # Add window
-                window_parts = self.create_window(
-                    (window_x, 0, base_height * 0.4),
-                    with_frame=False
-                )
-                meshes.extend(window_parts)
+                window_cutouts.append(cutout)
+        
+        # Combine all window cutouts and subtract from base in one operation
+        if window_cutouts:
+            if len(window_cutouts) == 1:
+                combined_cutouts = window_cutouts[0]
+            else:
+                combined_cutouts = window_cutouts[0]
+                for cutout in window_cutouts[1:]:
+                    combined_cutouts = combined_cutouts.union(cutout)
+            base = base.difference(combined_cutouts)
+        
+        # Now add window details (cavities and windows)
+        for window_x in window_positions:
+            # Create cavity (starting at wall front face)
+            cavity_parts = self.create_window_cavity((window_x, 0, base_height * 0.4))
+            meshes.extend(cavity_parts)
+            
+            # Add window
+            window_parts = self.create_window(
+                (window_x, 0, base_height * 0.4),
+                with_frame=False
+            )
+            meshes.extend(window_parts)
         
         # Re-apply material after boolean operations
         base.visual = trimesh.visual.TextureVisuals(material=self.materials['base'])
