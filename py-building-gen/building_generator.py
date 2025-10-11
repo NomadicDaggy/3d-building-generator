@@ -543,12 +543,8 @@ def main():
     # Generate a 5-story building with 4 apartments per floor
     building_scene = generator.generate_building(num_floors=5, apartments_per_floor=4)
     
-    # Export to different formats
-    print("\nExporting models...")
-    
     # OBJ+MTL format (preserves materials for Blender)
     building_scene.export('soviet_apartment_block.obj')
-    print("✓ Exported to soviet_apartment_block.obj (with .mtl)")
     
     print(f"\nBuilding statistics:")
     print(f"  Meshes in scene: {len(building_scene.geometry)}")
@@ -557,19 +553,6 @@ def main():
     print(f"  Total vertices: {total_vertices}")
     print(f"  Total faces: {total_faces}")
     print(f"  Bounding box: {building_scene.bounds}")
-    
-    print("\nMaterials used:")
-    print("  - Base: Tan/beige concrete")
-    print("  - Walls: Light gray concrete")
-    print("  - Window Cavities: Dark interior shadow")
-    print("  - Windows: Blue-tinted glass")
-    print("  - Window Frames: Dark gray metal")
-    print("  - Balconies: Light tan/cream")
-    print("  - Railings: Dark metallic gray")
-    print("  - Roof: Dark brownish-gray")
-    print("  - Entrance: Dark brown")
-    
-    print("\nDone! Models with materials saved in current directory.")
 
 
 if __name__ == "__main__":
