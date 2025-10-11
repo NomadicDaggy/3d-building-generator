@@ -27,6 +27,12 @@ class BuildingGenerator:
         self.balcony_depth = 0.8
         self.balcony_height = 0.1
         
+        # Window dimensions
+        self.window_cavity_depth = 0.25  # Deep recess in wall
+        self.window_reveal_depth = 0.05  # How far window sits from wall face
+        self.window_frame_depth = 0.08   # Thickness of window frame
+        self.window_glass_depth = 0.02   # Thickness of glass pane
+        
         # Define materials for different building components
         self.materials = {
             'wall': trimesh.visual.material.SimpleMaterial(
@@ -38,6 +44,11 @@ class BuildingGenerator:
                 diffuse=[180, 160, 140, 255],    # Tan/beige for base
                 ambient=[160, 140, 120, 255],
                 specular=[40, 40, 40, 255]
+            ),
+            'window_cavity': trimesh.visual.material.SimpleMaterial(
+                diffuse=[40, 40, 45, 255],       # Dark interior/shadow
+                ambient=[30, 30, 35, 255],
+                specular=[10, 10, 10, 255]
             ),
             'window': trimesh.visual.material.SimpleMaterial(
                 diffuse=[100, 150, 200, 255],    # Blue-tinted glass
@@ -108,48 +119,62 @@ class BuildingGenerator:
         
         return mesh
     
+    def create_window_cavity(self, position):
+        """Create the deep recess in the wall for the window"""
+        cavity = self.create_box(
+            size=(self.window_width, self.window_cavity_depth, self.window_height),
+            position=position,
+            material=self.materials['window_cavity']
+        )
+        return cavity
+    
     def create_window(self, position, with_frame=True):
-        """Create a simple flat window"""
+        """Create window assembly with frame and glass at proper depths"""
         meshes = []
         
-        # Simple flat window - just a thin colored rectangle
-        flat_depth = 0.01
-        window = self.create_box(
-            size=(self.window_width, flat_depth, self.window_height),
-            position=position,
-            material=self.materials['window']
-        )
-        meshes.append(window)
+        # Window is positioned at reveal depth from wall face
+        window_y = position[1] + self.window_reveal_depth
         
         if with_frame:
-            # Window frame (thin border)
+            # Window frame with proper thickness
             frame_thickness = 0.05
+            
             # Left frame
             left_frame = self.create_box(
-                size=(frame_thickness, flat_depth, self.window_height),
-                position=position,
+                size=(frame_thickness, self.window_frame_depth, self.window_height),
+                position=(position[0], window_y, position[2]),
                 material=self.materials['window_frame']
             )
             # Right frame
             right_frame = self.create_box(
-                size=(frame_thickness, flat_depth, self.window_height),
-                position=(position[0] + self.window_width - frame_thickness, position[1], position[2]),
+                size=(frame_thickness, self.window_frame_depth, self.window_height),
+                position=(position[0] + self.window_width - frame_thickness, window_y, position[2]),
                 material=self.materials['window_frame']
             )
             # Top frame
             top_frame = self.create_box(
-                size=(self.window_width, flat_depth, frame_thickness),
-                position=(position[0], position[1], position[2] + self.window_height - frame_thickness),
+                size=(self.window_width, self.window_frame_depth, frame_thickness),
+                position=(position[0], window_y, position[2] + self.window_height - frame_thickness),
                 material=self.materials['window_frame']
             )
             # Bottom frame
             bottom_frame = self.create_box(
-                size=(self.window_width, flat_depth, frame_thickness),
-                position=position,
+                size=(self.window_width, self.window_frame_depth, frame_thickness),
+                position=(position[0], window_y, position[2]),
                 material=self.materials['window_frame']
             )
             
             meshes.extend([left_frame, right_frame, top_frame, bottom_frame])
+        
+        # Glass pane sits at the back of the frame
+        glass_y = window_y + self.window_frame_depth - self.window_glass_depth
+        
+        window_glass = self.create_box(
+            size=(self.window_width, self.window_glass_depth, self.window_height),
+            position=(position[0], glass_y, position[2]),
+            material=self.materials['window']
+        )
+        meshes.append(window_glass)
         
         return meshes
     
@@ -211,19 +236,32 @@ class BuildingGenerator:
         # Window positioning (centered on facade, front face is at Y=y)
         window_z_offset = 0.8  # Height from floor
         window_x_center = self.apartment_width / 2
+        cavity_inset = -0.02  # Offset cavity slightly into wall to prevent z-fighting
         
         if variant == 2:  # Double window
             window_spacing = 0.3
             window_x1 = window_x_center - self.window_width - window_spacing / 2
             window_x2 = window_x_center + window_spacing / 2
             
-            window1_parts = self.create_window((x + window_x1, y, z + window_z_offset))
-            window2_parts = self.create_window((x + window_x2, y, z + window_z_offset))
+            # Create cavities first (inset slightly to prevent z-fighting)
+            cavity1 = self.create_window_cavity((x + window_x1, y + cavity_inset, z + window_z_offset))
+            cavity2 = self.create_window_cavity((x + window_x2, y + cavity_inset, z + window_z_offset))
+            meshes.extend([cavity1, cavity2])
+            
+            # Then add window assemblies
+            window1_parts = self.create_window((x + window_x1, y + cavity_inset, z + window_z_offset))
+            window2_parts = self.create_window((x + window_x2, y + cavity_inset, z + window_z_offset))
             meshes.extend(window1_parts)
             meshes.extend(window2_parts)
         else:  # Single window
             window_x = window_x_center - self.window_width / 2
-            window_parts = self.create_window((x + window_x, y, z + window_z_offset))
+            
+            # Create cavity first (inset slightly to prevent z-fighting)
+            cavity = self.create_window_cavity((x + window_x, y + cavity_inset, z + window_z_offset))
+            meshes.append(cavity)
+            
+            # Then add window assembly
+            window_parts = self.create_window((x + window_x, y + cavity_inset, z + window_z_offset))
             meshes.extend(window_parts)
         
         # Add balcony if variant == 1
@@ -271,11 +309,17 @@ class BuildingGenerator:
         
         # Some base windows (smaller, less regular)
         num_base_windows = int(width / self.apartment_width) - 1
+        cavity_inset = -0.02  # Prevent z-fighting on base windows too
         for i in range(num_base_windows):
             window_x = (i + 1) * self.apartment_width
             if abs(window_x - width / 2) > entrance_width:  # Don't place over entrance
+                # Create cavity (inset slightly)
+                cavity = self.create_window_cavity((window_x, cavity_inset, base_height * 0.4))
+                meshes.append(cavity)
+                
+                # Add window
                 window_parts = self.create_window(
-                    (window_x, 0, base_height * 0.4),
+                    (window_x, cavity_inset, base_height * 0.4),
                     with_frame=False
                 )
                 meshes.extend(window_parts)
@@ -405,6 +449,7 @@ def main():
     print("\nMaterials used:")
     print("  - Base: Tan/beige concrete")
     print("  - Walls: Light gray concrete")
+    print("  - Window Cavities: Dark interior shadow")
     print("  - Windows: Blue-tinted glass")
     print("  - Window Frames: Dark gray metal")
     print("  - Balconies: Light tan/cream")
