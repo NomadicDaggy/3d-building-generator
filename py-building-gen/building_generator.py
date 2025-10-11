@@ -27,8 +27,52 @@ class BuildingGenerator:
         self.balcony_depth = 0.8
         self.balcony_height = 0.1
         
-    def create_box(self, size, position=(0, 0, 0)):
-        """Create a simple box mesh with Z as up axis"""
+        # Define materials for different building components
+        self.materials = {
+            'wall': trimesh.visual.material.SimpleMaterial(
+                diffuse=[220, 220, 220, 255],    # Light concrete gray
+                ambient=[200, 200, 200, 255],
+                specular=[50, 50, 50, 255]
+            ),
+            'base': trimesh.visual.material.SimpleMaterial(
+                diffuse=[180, 160, 140, 255],    # Tan/beige for base
+                ambient=[160, 140, 120, 255],
+                specular=[40, 40, 40, 255]
+            ),
+            'window': trimesh.visual.material.SimpleMaterial(
+                diffuse=[100, 150, 200, 255],    # Blue-tinted glass
+                ambient=[80, 120, 160, 255],
+                specular=[150, 180, 220, 255]    # Reflective
+            ),
+            'window_frame': trimesh.visual.material.SimpleMaterial(
+                diffuse=[60, 60, 60, 255],       # Dark gray metal
+                ambient=[40, 40, 40, 255],
+                specular=[80, 80, 80, 255]
+            ),
+            'balcony': trimesh.visual.material.SimpleMaterial(
+                diffuse=[200, 180, 160, 255],    # Lighter tan/cream
+                ambient=[180, 160, 140, 255],
+                specular=[50, 50, 50, 255]
+            ),
+            'railing': trimesh.visual.material.SimpleMaterial(
+                diffuse=[80, 80, 80, 255],       # Dark metallic gray
+                ambient=[60, 60, 60, 255],
+                specular=[120, 120, 120, 255]    # Metallic shine
+            ),
+            'roof': trimesh.visual.material.SimpleMaterial(
+                diffuse=[120, 110, 100, 255],    # Dark brownish-gray
+                ambient=[100, 90, 80, 255],
+                specular=[30, 30, 30, 255]
+            ),
+            'entrance': trimesh.visual.material.SimpleMaterial(
+                diffuse=[100, 80, 60, 255],      # Dark brown
+                ambient=[80, 60, 40, 255],
+                specular=[40, 40, 40, 255]
+            )
+        }
+        
+    def create_box(self, size, position=(0, 0, 0), material=None):
+        """Create a simple box mesh with Z as up axis and optional material"""
         # size = (width_X, depth_Y, height_Z)
         # Creates a box extending:
         #   - size[0] in X direction (width, left-right)
@@ -56,46 +100,58 @@ class BuildingGenerator:
             [1, 5, 6], [1, 6, 2]
         ])
         
-        return trimesh.Trimesh(vertices=vertices, faces=faces)
+        mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        
+        # Apply material if provided
+        if material is not None:
+            mesh.visual = trimesh.visual.TextureVisuals(material=material)
+        
+        return mesh
     
     def create_window(self, position, with_frame=True):
-        """Create a recessed window"""
+        """Create a simple flat window"""
         meshes = []
         
-        # Window recess - size = (width_X, depth_Y, height_Z)
-        recess = self.create_box(
-            size=(self.window_width, self.window_depth, self.window_height),
-            position=position
+        # Simple flat window - just a thin colored rectangle
+        flat_depth = 0.01
+        window = self.create_box(
+            size=(self.window_width, flat_depth, self.window_height),
+            position=position,
+            material=self.materials['window']
         )
-        meshes.append(recess)
+        meshes.append(window)
         
         if with_frame:
             # Window frame (thin border)
             frame_thickness = 0.05
             # Left frame
             left_frame = self.create_box(
-                size=(frame_thickness, self.window_depth, self.window_height),
-                position=position
+                size=(frame_thickness, flat_depth, self.window_height),
+                position=position,
+                material=self.materials['window_frame']
             )
             # Right frame
             right_frame = self.create_box(
-                size=(frame_thickness, self.window_depth, self.window_height),
-                position=(position[0] + self.window_width - frame_thickness, position[1], position[2])
+                size=(frame_thickness, flat_depth, self.window_height),
+                position=(position[0] + self.window_width - frame_thickness, position[1], position[2]),
+                material=self.materials['window_frame']
             )
             # Top frame
             top_frame = self.create_box(
-                size=(self.window_width, self.window_depth, frame_thickness),
-                position=(position[0], position[1], position[2] + self.window_height - frame_thickness)
+                size=(self.window_width, flat_depth, frame_thickness),
+                position=(position[0], position[1], position[2] + self.window_height - frame_thickness),
+                material=self.materials['window_frame']
             )
             # Bottom frame
             bottom_frame = self.create_box(
-                size=(self.window_width, self.window_depth, frame_thickness),
-                position=position
+                size=(self.window_width, flat_depth, frame_thickness),
+                position=position,
+                material=self.materials['window_frame']
             )
             
             meshes.extend([left_frame, right_frame, top_frame, bottom_frame])
         
-        return trimesh.util.concatenate(meshes)
+        return meshes
     
     def create_balcony(self, position, width):
         """Create a simple balcony"""
@@ -104,7 +160,8 @@ class BuildingGenerator:
         # Balcony floor - size = (width_X, depth_Y, height_Z)
         floor = self.create_box(
             size=(width, self.balcony_depth, self.balcony_height),
-            position=position
+            position=position,
+            material=self.materials['balcony']
         )
         meshes.append(floor)
         
@@ -115,22 +172,25 @@ class BuildingGenerator:
         # Outer railing (farthest from building, at the front of the balcony Y=position[1])
         outer_rail = self.create_box(
             size=(width, railing_thickness, railing_height),
-            position=(position[0], position[1], position[2] + self.balcony_height)
+            position=(position[0], position[1], position[2] + self.balcony_height),
+            material=self.materials['railing']
         )
         meshes.append(outer_rail)
         
         # Side railings
         left_rail = self.create_box(
             size=(railing_thickness, self.balcony_depth, railing_height),
-            position=(position[0], position[1], position[2] + self.balcony_height)
+            position=(position[0], position[1], position[2] + self.balcony_height),
+            material=self.materials['railing']
         )
         right_rail = self.create_box(
             size=(railing_thickness, self.balcony_depth, railing_height),
-            position=(position[0] + width - railing_thickness, position[1], position[2] + self.balcony_height)
+            position=(position[0] + width - railing_thickness, position[1], position[2] + self.balcony_height),
+            material=self.materials['railing']
         )
         meshes.extend([left_rail, right_rail])
         
-        return trimesh.util.concatenate(meshes)
+        return meshes
     
     def create_apartment_facade(self, position, floor_num, variant=0):
         """
@@ -143,7 +203,8 @@ class BuildingGenerator:
         # Main wall section - size = (width_X, depth_Y, height_Z)
         wall = self.create_box(
             size=(self.apartment_width, self.building_depth, self.floor_height),
-            position=position
+            position=position,
+            material=self.materials['wall']
         )
         meshes.append(wall)
         
@@ -156,13 +217,14 @@ class BuildingGenerator:
             window_x1 = window_x_center - self.window_width - window_spacing / 2
             window_x2 = window_x_center + window_spacing / 2
             
-            window1 = self.create_window((x + window_x1, y, z + window_z_offset))
-            window2 = self.create_window((x + window_x2, y, z + window_z_offset))
-            meshes.extend([window1, window2])
+            window1_parts = self.create_window((x + window_x1, y, z + window_z_offset))
+            window2_parts = self.create_window((x + window_x2, y, z + window_z_offset))
+            meshes.extend(window1_parts)
+            meshes.extend(window2_parts)
         else:  # Single window
             window_x = window_x_center - self.window_width / 2
-            window = self.create_window((x + window_x, y, z + window_z_offset))
-            meshes.append(window)
+            window_parts = self.create_window((x + window_x, y, z + window_z_offset))
+            meshes.extend(window_parts)
         
         # Add balcony if variant == 1
         # Balcony extends in NEGATIVE Y direction from building front
@@ -171,13 +233,13 @@ class BuildingGenerator:
             balcony_x = x + (self.apartment_width - balcony_width) / 2
             balcony_z = z + 0.2  # Slightly above floor
             
-            balcony = self.create_balcony(
+            balcony_parts = self.create_balcony(
                 (balcony_x, y - self.balcony_depth, balcony_z),
                 balcony_width
             )
-            meshes.append(balcony)
+            meshes.extend(balcony_parts)
         
-        return trimesh.util.concatenate(meshes)
+        return meshes
     
     def create_base(self, width, depth):
         """Create ground floor base (often different in Soviet buildings)"""
@@ -189,19 +251,21 @@ class BuildingGenerator:
         # Main base structure - size = (width_X, depth_Y, height_Z)
         base = self.create_box(
             size=(width, depth, base_height),
-            position=(0, 0, 0)
+            position=(0, 0, 0),
+            material=self.materials['base']
         )
         meshes.append(base)
         
-        # Entrance (simple recessed area)
+        # Entrance (simple flat colored area)
         entrance_width = 2.0
         entrance_height = 2.5
-        entrance_depth = 0.3
+        entrance_depth = 0.01  # Very thin, just for color
         entrance_x = width / 2 - entrance_width / 2
         
         entrance = self.create_box(
             size=(entrance_width, entrance_depth, entrance_height),
-            position=(entrance_x, 0, 0.2)
+            position=(entrance_x, 0, 0.2),
+            material=self.materials['entrance']
         )
         meshes.append(entrance)
         
@@ -210,13 +274,13 @@ class BuildingGenerator:
         for i in range(num_base_windows):
             window_x = (i + 1) * self.apartment_width
             if abs(window_x - width / 2) > entrance_width:  # Don't place over entrance
-                window = self.create_window(
+                window_parts = self.create_window(
                     (window_x, 0, base_height * 0.4),
                     with_frame=False
                 )
-                meshes.append(window)
+                meshes.extend(window_parts)
         
-        return trimesh.util.concatenate(meshes), base_height
+        return meshes, base_height
     
     def create_roof(self, width, depth, height):
         """Create a simple flat roof with slight detail"""
@@ -227,7 +291,8 @@ class BuildingGenerator:
         # Main roof slab - size = (width_X, depth_Y, height_Z)
         roof = self.create_box(
             size=(width, depth, roof_height),
-            position=(0, 0, height)
+            position=(0, 0, height),
+            material=self.materials['roof']
         )
         meshes.append(roof)
         
@@ -238,24 +303,29 @@ class BuildingGenerator:
         # Front edge
         front_edge = self.create_box(
             size=(width + overhang * 2, overhang, edge_height),
-            position=(-overhang, -overhang, height + roof_height)
+            position=(-overhang, -overhang, height + roof_height),
+            material=self.materials['roof']
         )
         meshes.append(front_edge)
         
-        return trimesh.util.concatenate(meshes)
+        return meshes
     
     def generate_building(self, num_floors=5, apartments_per_floor=4):
         """Generate complete building"""
         print(f"Generating {num_floors} story building with {apartments_per_floor} apartments per floor...")
         
-        all_meshes = []
+        # Use Scene to preserve materials
+        scene = trimesh.Scene()
+        mesh_counter = 0
         
         building_width = apartments_per_floor * self.apartment_width
         
         # Create base
         print("Creating base...")
-        base, base_height = self.create_base(building_width, self.building_depth)
-        all_meshes.append(base)
+        base_parts, base_height = self.create_base(building_width, self.building_depth)
+        for part in base_parts:
+            scene.add_geometry(part, node_name=f'base_{mesh_counter}')
+            mesh_counter += 1
         
         # Create middle floors
         current_height = base_height
@@ -266,37 +336,35 @@ class BuildingGenerator:
                 # Vary the facade type
                 variant = self.get_facade_variant(floor, apt)
                 
-                facade = self.create_apartment_facade(
+                facade_parts = self.create_apartment_facade(
                     position=(apt * self.apartment_width, 0, current_height),
                     floor_num=floor + 1,
                     variant=variant
                 )
-                all_meshes.append(facade)
+                for part in facade_parts:
+                    scene.add_geometry(part, node_name=f'facade_f{floor}_a{apt}_{mesh_counter}')
+                    mesh_counter += 1
             
             current_height += self.floor_height
         
         # Create roof
         print("Creating roof...")
-        roof = self.create_roof(building_width, self.building_depth, current_height)
-        all_meshes.append(roof)
+        roof_parts = self.create_roof(building_width, self.building_depth, current_height)
+        for part in roof_parts:
+            scene.add_geometry(part, node_name=f'roof_{mesh_counter}')
+            mesh_counter += 1
         
-        # Combine all meshes
-        print("Combining meshes...")
-        building = trimesh.util.concatenate(all_meshes)
+        print(f"Created {mesh_counter} individual meshes with materials!")
         
-        # Generate simple UV coordinates
-        print("Generating UV coordinates...")
-        building = self.generate_uvs(building)
-
         # Rotation for blender
         rotation_matrix = trimesh.transformations.rotation_matrix(
             angle=np.radians(-90),  # 90 degrees
             direction=[1, 0, 0],   # Rotate around X-axis
             point=[0, 0, 0]        # Rotate around the origin (front-bottom edge)
         )
-        building.apply_transform(rotation_matrix)
+        scene.apply_transform(rotation_matrix)
         
-        return building
+        return scene
     
     def get_facade_variant(self, floor, apartment):
         """Determine facade variant with some logic for variety"""
@@ -309,23 +377,6 @@ class BuildingGenerator:
             return 0  # No balcony
         else:
             return 2  # Double window
-    
-    def generate_uvs(self, mesh):
-        """Generate basic planar UV mapping"""
-        # Simple box projection UV mapping
-        vertices = mesh.vertices
-        
-        # Project onto XY plane
-        uvs = np.zeros((len(vertices), 2))
-        
-        # Simple planar projection
-        uvs[:, 0] = vertices[:, 0] / 10.0  # Normalize X
-        uvs[:, 1] = vertices[:, 1] / 10.0  # Normalize Y
-        
-        # Store UVs as visual (will be exported to OBJ)
-        mesh.visual = trimesh.visual.TextureVisuals(uv=uvs)
-        
-        return mesh
 
 
 def main():
@@ -334,30 +385,34 @@ def main():
     generator = BuildingGenerator(seed=42)
     
     # Generate a 5-story building with 4 apartments per floor
-    building = generator.generate_building(num_floors=5, apartments_per_floor=4)
+    building_scene = generator.generate_building(num_floors=5, apartments_per_floor=4)
     
     # Export to different formats
     print("\nExporting models...")
     
-    # OBJ format (good for most game engines, preserves UVs)
-    # building.export('soviet_apartment_block.obj')
-    # print("✓ Exported to soviet_apartment_block.obj")
-    
-    # GLB format (modern format, good for web and modern engines)
-    building.export('soviet_apartment_block.glb')
-    print("✓ Exported to soviet_apartment_block.glb")
-    
-    # STL format (for 3D printing or backup)
-    # building.export('soviet_apartment_block.stl')
-    # print("✓ Exported to soviet_apartment_block.stl")
+    # OBJ+MTL format (preserves materials for Blender)
+    building_scene.export('soviet_apartment_block.obj')
+    print("✓ Exported to soviet_apartment_block.obj (with .mtl)")
     
     print(f"\nBuilding statistics:")
-    print(f"  Vertices: {len(building.vertices)}")
-    print(f"  Faces: {len(building.faces)}")
-    print(f"  Bounding box: {building.bounds}")
-    print(f"  Volume: {building.volume:.2f} cubic units")
+    print(f"  Meshes in scene: {len(building_scene.geometry)}")
+    total_vertices = sum(len(mesh.vertices) for mesh in building_scene.geometry.values())
+    total_faces = sum(len(mesh.faces) for mesh in building_scene.geometry.values())
+    print(f"  Total vertices: {total_vertices}")
+    print(f"  Total faces: {total_faces}")
+    print(f"  Bounding box: {building_scene.bounds}")
     
-    print("\nDone! Models saved in current directory.")
+    print("\nMaterials used:")
+    print("  - Base: Tan/beige concrete")
+    print("  - Walls: Light gray concrete")
+    print("  - Windows: Blue-tinted glass")
+    print("  - Window Frames: Dark gray metal")
+    print("  - Balconies: Light tan/cream")
+    print("  - Railings: Dark metallic gray")
+    print("  - Roof: Dark brownish-gray")
+    print("  - Entrance: Dark brown")
+    
+    print("\nDone! Models with materials saved in current directory.")
 
 
 if __name__ == "__main__":
