@@ -287,6 +287,14 @@ class BuildingGenerator:
         # Generate simple UV coordinates
         print("Generating UV coordinates...")
         building = self.generate_uvs(building)
+
+        # Rotation for blender
+        rotation_matrix = trimesh.transformations.rotation_matrix(
+            angle=np.radians(-90),  # 90 degrees
+            direction=[1, 0, 0],   # Rotate around X-axis
+            point=[0, 0, 0]        # Rotate around the origin (front-bottom edge)
+        )
+        building.apply_transform(rotation_matrix)
         
         return building
     
